@@ -1,5 +1,7 @@
 # codeqa: code-aware retrieval for repository Q&A
 
+[![tests](https://github.com/Divjotflora/codeqa/actions/workflows/tests.yml/badge.svg)](https://github.com/Divjotflora/codeqa/actions/workflows/tests.yml)
+
 Given a question about a Python codebase, such as a bug report, "where is X handled?" or
 "what breaks if I change Y?", find the functions that answer it.
 
@@ -7,6 +9,8 @@ The system combines tree-sitter AST chunking, a call graph resolved with Jedi, a
 hybrid BM25 + dense retrieval with graph expansion. It is evaluated on **210 real
 GitHub issues from two repositories**, with gold answers mined from the PRs that
 closed them.
+
+![ask.py answering a question with verified citations](docs/ask_demo.png)
 
 ## Headline result
 
@@ -390,8 +394,13 @@ python ask.py --repo ../click --index index "Why is the progress bar not shown w
 - **Retrieval is the bottleneck.** On click's implicit questions, gold reaches the
   model only 36% of the time. When it does, the model cites it 71% of the time. Better
   retrieval would move end-to-end accuracy more than a better generator.
-- **A valid citation means the location is real, not that the claim is true.** In the
-  demo answer, the model referred to attribute names that may not exist.
+- **A valid citation means the location is real, not that the claim is true.** Asked
+  why click's progress bar disappears when output is piped, the model cited the right
+  code (`ProgressBar`, `render_progress`) and used real attribute names (`_is_atty`,
+  `hidden`), but claimed a non-terminal output *sets* `hidden = True`. In the code,
+  `hidden` is a user parameter, and the non-terminal case is a separate `_is_atty`
+  check. Every citation was valid and every name was real, yet the explanation was
+  wrong.
   `check_identifiers.py` measures this: it checks every backticked name in an answer
   against the snippets shown, the question, and the rest of the repo, and flags names
   found nowhere.
@@ -402,16 +411,22 @@ python ask.py --repo ../click --index index "Why is the progress bar not shown w
 | from the snippets shown | 83.4% | 92.7% | 92.7% |
 | repeated from the question | 16.6% | 6.1% | 7.3% |
 | real, but not shown (recalled) | 0% | 0.2% | 0% |
-| **found nowhere (hallucinated)** | **0%** | **1.0%** | **0%** |
-| answers with a hallucinated name | 0% | 2.7% | 0% |
+| **found nowhere: near-miss of a real name** | 0% | 0.6% | 0% |
+| **found nowhere: invented** | 0% | 0.3% | 0% |
+| answers with any name found nowhere | 0% | 2.7% | 0% |
+| answers with an invented name | 0% | 1.4% | 0% |
 
-  Across all 240 answers, 4 contain a name that doesn't exist (1.7%). Several look like
-  near-misses of real private helpers rather than invented concepts: for example
-  `resolve_context` and `nullpager`, where click's helpers are underscore-prefixed.
-  Others, like `ParameterSourceMap`, look invented.
+  Across all 240 answers, 4 contain a name that doesn't exist (1.7%). Of the 6 names
+  involved, **4 are near-misses**: they match a real name once case and underscores are
+  ignored. Each one dropped the leading underscore of a real private helper:
+  `resolve_context` and `resolve_incomplete` for `_resolve_context` and
+  `_resolve_incomplete`, `nullpager` for `_nullpager`, and `less_uses_raw_mode` for
+  `_less_uses_raw_mode`. Only **2 names are invented** (`ParameterSourceMap`,
+  `suggest_possible_commands`), in 2 answers out of 240 (0.8%).
 
   This check is name-level only. An answer can use real names and still make a false
-  claim about them ("X calls Y"); detecting that would need semantic verification.
+  claim about them, as in the progress-bar example above; detecting that would need
+  semantic verification.
 
 
 ### Known limitations
@@ -437,7 +452,7 @@ python ask.py --repo ../click --index index "Why is the progress bar not shown w
 pip install -r requirements.txt
 git clone https://github.com/pallets/click.git ../click          # full history: no --depth
 
-python -m pytest -q tests                                         # 18 tests
+python -m pytest -q tests                                         # 19 tests
 python build_index.py ../click --out index                        # chunks + graph (~1-2 min)
 python run_eval.py --repo ../click --index index \
     --evalset eval/click_titles.jsonl                              # BM25 rows, no downloads
@@ -494,7 +509,7 @@ codeqa/
 build_index.py  build_evalset.py  run_eval.py  summarize_index.py  compare.py
 ask.py  run_answers.py  check_identifiers.py
 eval/           click_titles.jsonl, click_issues.jsonl, jinja_issues.jsonl
-tests/          18 tests (chunker, metrics, fusion, embedding cache, summarizers, reranker, citations)
+tests/          19 tests (chunker, metrics, fusion, embedding cache, summarizers, reranker, citations), run on CI
 ```
 
 ## Roadmap

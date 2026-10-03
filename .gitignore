@@ -1,12 +1,21 @@
+# environment
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# built indexes and caches (rebuild with build_index.py)
 index/
 index_*/
 .gh_cache*/
+
+# run outputs (regenerate with run_eval.py / run_answers.py)
 results*.json
 dev_*.json
 answers_*.jsonl
+
+# OS / editor
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/

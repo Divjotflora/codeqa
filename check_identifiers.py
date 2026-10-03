@@ -7,7 +7,10 @@ This checks the names an answer puts in backticks (`ProgressBar.render_progress`
   snippet    appears in the code snippets the model was shown
   question   appears in the question / issue text (the model repeated the user)
   repo       exists elsewhere in the repository, but wasn't shown (recalled or guessed)
-  nowhere    exists in none of these: a hallucinated name
+  nowhere    exists in none of these: a hallucinated name, split into
+    near_miss  matches a real name once case and underscores are ignored
+               (`resolve_context` for the real `_resolve_context`)
+    invented   matches nothing real at all
 
   python check_identifiers.py --repo ../click --index index --evalset eval/click_issues.jsonl \
       --answers answers_click.jsonl
@@ -30,6 +33,18 @@ SKIP = set(keyword.kwlist) | set(dir(builtins)) | {"self", "cls", "args", "kwarg
 
 def names_in(text: str) -> set[str]:
     return set(IDENT.findall(text))
+
+
+def loose(name: str) -> str:
+    """Key that ignores case and underscores: _resolve_context == resolveContext."""
+    return name.replace("_", "").lower()
+
+
+def near_miss_index(names: set[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for n in sorted(names):
+        out.setdefault(loose(n), n)
+    return out
 
 
 def answer_identifiers(answer: str) -> list[str]:
@@ -59,8 +74,10 @@ def main() -> None:
         repo_names |= names_in("\n".join(repo.lines(f)))
     query = {ex["id"]: ex["query"] for ex in load(args.evalset)}
 
-    counts = {"snippet": 0, "question": 0, "repo": 0, "nowhere": 0}
-    answers_with_nowhere, n, examples = 0, 0, []
+    near = near_miss_index(repo_names)
+    counts = {"snippet": 0, "question": 0, "repo": 0, "near_miss": 0, "invented": 0}
+    answers_with_nowhere = answers_with_invented = n = 0
+    examples = []
     for line in open(args.answers, encoding="utf-8"):
         if not line.strip():
             continue
@@ -70,24 +87,38 @@ def main() -> None:
         shown = build_snippets(repo, r["shown"], args.k, args.max_lines)
         seen = names_in("\n".join(s.text for s in shown))
         asked = names_in(query.get(r["id"], ""))
-        bad = []
+        bad, invented = [], False
         for tok in answer_identifiers(r["answer"]):
-            where = ("snippet" if tok in seen else "question" if tok in asked
-                     else "repo" if tok in repo_names else "nowhere")
+            if tok in seen:
+                where = "snippet"
+            elif tok in asked:
+                where = "question"
+            elif tok in repo_names:
+                where = "repo"
+            elif loose(tok) in near:
+                where = "near_miss"
+                bad.append(f"{tok} (real: {near[loose(tok)]})")
+            else:
+                where = "invented"
+                invented = True
+                bad.append(f"{tok} (invented)")
             counts[where] += 1
-            if where == "nowhere":
-                bad.append(tok)
         if bad:
             answers_with_nowhere += 1
+            answers_with_invented += invented
             if len(examples) < args.examples:
                 examples.append((r["id"], bad))
 
     total = sum(counts.values())
+    nowhere = counts["near_miss"] + counts["invented"]
     print(json.dumps({
         "answers": n,
         "identifiers_per_answer": round(total / max(n, 1), 2),
         **{f"share_{k}": round(v / max(total, 1), 3) for k, v in counts.items()},
+        "share_nowhere": round(nowhere / max(total, 1), 3),
+        "nowhere_that_are_near_misses": round(counts["near_miss"] / max(nowhere, 1), 3),
         "answers_with_hallucinated_identifier": round(answers_with_nowhere / max(n, 1), 3),
+        "answers_with_invented_identifier": round(answers_with_invented / max(n, 1), 3),
     }, indent=2))
     if examples:
         print("\nexamples of names found nowhere:")

@@ -93,3 +93,14 @@ def test_answer_identifiers():
     spec.loader.exec_module(ci)
     ids = ci.answer_identifiers("Uses `self._is_atty` and `ProgressBar.render()`; `None` and `len` skipped, `x` too.")
     assert ids == ["_is_atty", "ProgressBar", "render"]
+
+
+def test_near_miss_index():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ci", Path(__file__).parent.parent / "check_identifiers.py")
+    ci = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ci)
+    near = ci.near_miss_index({"_resolve_context", "ParameterSource", "_nullpager"})
+    assert near[ci.loose("resolve_context")] == "_resolve_context"
+    assert near[ci.loose("nullPager")] == "_nullpager"
+    assert ci.loose("ParameterSourceMap") not in near
