@@ -1,0 +1,9 @@
+tree-sitter>=0.23
+tree-sitter-python>=0.23
+jedi>=0.19
+networkx>=3.2
+numpy>=1.26
+pytest
+# stage 3 (optional)
+sentence-transformers>=3.0   # local embedding models
+anthropic>=0.40              # chunk summaries

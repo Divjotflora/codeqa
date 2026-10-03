@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+index/
+index_*/
+.gh_cache*/
+results*.json
+dev_*.json
+answers_*.jsonl
+.vscode/
+.idea/
