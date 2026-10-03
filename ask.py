@@ -1,10 +1,15 @@
-"""Ask a question about an indexed repo and get an answer with verified citations.
+"""Ask questions about an indexed repo and get answers with verified citations.
 
-  python ask.py --repo ../click --index index "Why does the progress bar not show up when output is piped?"
-  python ask.py --repo ../click --index index --model qwen2.5-coder:3b --show-context "..."
+One question:
+  python ask.py --repo ../click --index index "How does click generate the shell completion script?"
+
+Interactive (models load once, then ask as many questions as you like):
+  python ask.py --repo ../click --index index
+  commands:  :ctx  toggle showing the code snippets   :q  quit
 """
 import argparse
 import textwrap
+import time
 from pathlib import Path
 
 from codeqa.answer import Repo, answer_question
@@ -15,26 +20,8 @@ MARK = {"valid": "ok ", "ungrounded": "?? ", "bad_range": "XX ", "bad_file": "XX
         "named": "-- "}
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("question")
-    ap.add_argument("--repo", type=Path, required=True)
-    ap.add_argument("--index", type=Path, required=True)
-    ap.add_argument("--backend", default="ollama", choices=["ollama", "openai", "anthropic"])
-    ap.add_argument("--model", default="qwen2.5-coder:3b")
-    ap.add_argument("--base-url")
-    ap.add_argument("--embedder", default="st:bge-small", help="'none' for BM25 + graph only")
-    ap.add_argument("--k", type=int, default=5, help="functions shown to the model")
-    ap.add_argument("--max-lines", type=int, default=40)
-    ap.add_argument("--show-context", action="store_true")
-    args = ap.parse_args()
-
-    retriever, chunks = build_system(args.index, None if args.embedder == "none" else args.embedder)
-    repo = Repo(args.repo.resolve(), chunks)
-    llm = make_llm(args.backend, args.model, args.base_url)
-    ans = answer_question(args.question, retriever, repo, llm, args.k, args.max_lines)
-
-    if args.show_context:
+def show(ans, show_context: bool) -> None:
+    if show_context:
         print("=" * 80)
         for s in ans.shown:
             print(s.text, "\n")
@@ -53,6 +40,59 @@ def main() -> None:
         print(f"  [{MARK.get(c.status, '   ')}] {c.raw:<45} {c.status:<11} {where}")
     print("\nRetrieved (top 5):", ", ".join(ans.retrieved[:5]))
     print(f"\n{ans.seconds:.1f}s, {ans.tokens[0]} prompt tokens, {ans.tokens[1]} output tokens")
+
+
+def interactive(ask, show_context: bool) -> None:
+    print("\nReady. Type a question, ':ctx' to toggle showing code snippets, ':q' to quit.")
+    while True:
+        try:
+            q = input("\nquestion> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if not q:
+            continue
+        if q in (":q", ":quit", "exit", "quit"):
+            return
+        if q == ":ctx":
+            show_context = not show_context
+            print(f"showing code snippets: {'on' if show_context else 'off'}")
+            continue
+        try:
+            show(ask(q), show_context)
+        except KeyboardInterrupt:
+            print("\n(cancelled)")
+        except Exception as e:      # keep the session alive (e.g. Ollama not running)
+            print(f"error: {e}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("question", nargs="?", help="omit to start an interactive session")
+    ap.add_argument("--repo", type=Path, required=True)
+    ap.add_argument("--index", type=Path, required=True)
+    ap.add_argument("--backend", default="ollama", choices=["ollama", "openai", "anthropic"])
+    ap.add_argument("--model", default="qwen2.5-coder:3b")
+    ap.add_argument("--base-url")
+    ap.add_argument("--embedder", default="st:bge-small", help="'none' for BM25 + graph only")
+    ap.add_argument("--k", type=int, default=5, help="functions shown to the model")
+    ap.add_argument("--max-lines", type=int, default=40)
+    ap.add_argument("--show-context", action="store_true")
+    args = ap.parse_args()
+
+    t0 = time.time()
+    retriever, chunks = build_system(args.index, None if args.embedder == "none" else args.embedder)
+    repo = Repo(args.repo.resolve(), chunks)
+    llm = make_llm(args.backend, args.model, args.base_url)
+
+    def ask(q):
+        return answer_question(q, retriever, repo, llm, args.k, args.max_lines)
+
+    if args.question:
+        show(ask(args.question), args.show_context)
+    else:
+        print(f"Loaded {len(chunks)} chunks from {args.index} in {time.time() - t0:.1f}s.")
+        interactive(ask, args.show_context)
 
 
 if __name__ == "__main__":

@@ -342,7 +342,8 @@ decision.
 
 ```bash
 ollama pull qwen2.5-coder:3b
-python ask.py --repo ../click --index index "Why is the progress bar not shown when output is piped?"
+python ask.py --repo ../click --index index "How does click generate the shell completion script?"
+python ask.py --repo ../click --index index      # interactive: load once, ask many (:ctx shows snippets, :q quits)
 ```
 
 `run_answers.py` scores answers on an eval set (resumable). It reports:
